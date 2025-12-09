@@ -1,0 +1,14 @@
+# Google Cloud libraries
+google-cloud-storage==2.10.0
+google-cloud-pubsub==2.18.4
+google-cloud-firestore==2.13.1
+
+# PDF processing libraries
+PyMuPDF==1.23.14
+Pillow==10.1.0
+
+# HTTP and utilities
+requests==2.31.0
+
+# JSON and data handling
+ujson==5.8.0

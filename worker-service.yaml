@@ -1,0 +1,89 @@
+# Cloud Run service configuration for Worker Service
+# To deploy: gcloud run services replace worker-service.yaml
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: document-processing-worker
+  annotations:
+    run.googleapis.com/ingress: none  # Internal only, no external traffic
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        # CPU and memory allocation for processing tasks
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/memory: "4Gi"
+        run.googleapis.com/cpu: "2"
+        
+        # Scaling configuration
+        autoscaling.knative.dev/minScale: "1"  # Keep at least 1 instance running
+        autoscaling.knative.dev/maxScale: "20" # Scale up to handle load
+        
+    spec:
+      # Service account for GCP permissions
+      serviceAccountName: document-processing-sa@bni-prod-dma-bnimove-ai.iam.gserviceaccount.com
+      
+      # Timeout for long-running document processing
+      timeoutSeconds: 3600  # 60 minutes for complex documents
+      
+      containers:
+      - image: IMAGE_PLACEHOLDER
+        
+        # Environment variables
+        env:
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "bni-prod-dma-bnimove-ai"
+        - name: PUBSUB_SUBSCRIPTION
+          value: "document-processing-request-sub"
+        - name: PUBSUB_RESULTS_TOPIC
+          value: "document-processing-results"
+        - name: FIRESTORE_DATABASE
+          value: "document-processing-firestore"
+        - name: MAX_WORKERS
+          value: "4"
+        
+        # OpenWebUI configuration - UPDATE THESE VALUES!
+        - name: OPENWEBUI_API_KEY
+          value: "sk-c2ebcb8d36aa4361a28560915d8ab6f2"  
+        - name: OPENWEBUI_BASE_URL
+          value: "https://nexus-bnimove-369455734154.asia-southeast2.run.app" 
+        - name: OPENWEBUI_MODEL
+          value: "image-screening-shmshm-elektronik"
+        
+        # Resource limits
+        resources:
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+        
+        # Health checks
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import google.cloud.pubsub_v1, google.cloud.storage, google.cloud.firestore; print('OK')"
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - -c
+            - "import google.cloud.pubsub_v1, google.cloud.storage, google.cloud.firestore; print('OK')"
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+  
+  traffic:
+  - percent: 100
+    latestRevision: true
