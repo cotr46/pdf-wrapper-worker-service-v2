@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY worker.py .
+COPY worker.py .         # ← Simple, langsung copy worker.py
 COPY pdf_processor.py .
 
 # Create non-root user for security
@@ -42,13 +42,17 @@ RUN useradd --create-home --shell /bin/bash worker \
 # Switch to non-root user
 USER worker
 
-# Health check - check if worker can import dependencies
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import google.cloud.pubsub_v1, google.cloud.storage, google.cloud.firestore; print('OK')" || exit 1
+# Health check - check HTTP endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV GOOGLE_CLOUD_PROJECT=bni-prod-dma-bnimove-ai
+ENV PORT=8080
+
+# Expose port for health checks
+EXPOSE 8080
 
 # Run the worker
 CMD ["python", "worker.py"]
