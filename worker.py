@@ -49,9 +49,9 @@ class DocumentWorker:
         )
         
         print(f"✅ Worker initialized for project: {self.project_id}")
-        print(f"📥 Subscription: {self.subscription_name}")
-        print(f"📤 Results topic: {self.results_topic}")
-        print(f"👥 Max workers: {self.max_workers}")
+        print(f"Subscription: {self.subscription_name}")
+        print(f"Results topic: {self.results_topic}")
+        print(f"Max workers: {self.max_workers}")
 
     def download_file_from_gcs(self, gcs_path: str, local_path: str) -> bool:
         """Download file from GCS to local filesystem"""
@@ -126,7 +126,7 @@ class DocumentWorker:
         filename = job_data["filename"]
         model_name = job_data.get("model_name")
         
-        print(f"🔄 Processing job {job_id}: {document_type} - {filename}")
+        print(f"Processing job {job_id}: {document_type} - {filename}")
         start_time = time.time()
         
         try:
@@ -145,7 +145,7 @@ class DocumentWorker:
                 processor = SilentPDFProcessor(config)
                 processor.enable_logging = True
                 
-                print(f"📄 Processing with model: {config['model']}")
+                print(f"Processing with model: {config['model']}")
                 result = processor.process_file(tmp_path)
                 
                 processing_time = time.time() - start_time
@@ -215,8 +215,8 @@ class DocumentWorker:
 
     def start_worker(self):
         """Start the worker using simple polling"""
-        print(f"🚀 Starting worker with ultra-simple polling...")
-        print(f"📡 Polling subscription: {self.subscription_path}")
+        print(f"Starting worker with ultra-simple polling...")
+        print(f"Polling subscription: {self.subscription_path}")
         
         consecutive_empty = 0
         max_empty_polls = 6  # Print heartbeat every 30 seconds (6 * 5s)
@@ -232,7 +232,7 @@ class DocumentWorker:
                     
                     if response.received_messages:
                         consecutive_empty = 0
-                        print(f"📬 Received {len(response.received_messages)} messages")
+                        print(f"Received {len(response.received_messages)} messages")
                         
                         # Process each message
                         for received_message in response.received_messages:
@@ -254,16 +254,16 @@ class DocumentWorker:
                     else:
                         consecutive_empty += 1
                         if consecutive_empty == 1:
-                            print(f"📭 No messages available")
+                            print(f"No messages available")
                         elif consecutive_empty >= max_empty_polls:
-                            print(f"🔄 Worker heartbeat - active and listening...")
+                            print(f"Worker heartbeat - active and listening...")
                             consecutive_empty = 0
                         
                         # Sleep between polls when no messages
                         time.sleep(5)
                 
                 except KeyboardInterrupt:
-                    print("\n🛑 Worker shutdown requested")
+                    print("\nWorker shutdown requested")
                     break
                 except Exception as e:
                     print(f"❌ Polling error: {e}")
@@ -280,7 +280,7 @@ class DocumentWorker:
 def main():
     """Main entry point"""
     try:
-        print("🚀 Initializing Document Processing Worker (Ultra-Simple Mode)...")
+        print("Initializing Document Processing Worker...")
         worker = DocumentWorker()
         worker.start_worker()
     except KeyboardInterrupt:
