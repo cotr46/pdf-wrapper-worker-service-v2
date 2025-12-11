@@ -7,6 +7,10 @@ google-cloud-firestore==2.13.1
 PyMuPDF==1.23.14
 Pillow==10.1.0
 
+# HTTP server for health checks
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
 # HTTP and utilities
 requests==2.31.0
 
