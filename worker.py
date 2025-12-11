@@ -195,30 +195,26 @@ class DocumentWorker:
                 "traceback": traceback.format_exc(),
             }
 
-    # ROBUST MESSAGE HANDLER - Fix untuk validation error dan duplicate processing
     def process_single_message(self, message_data: Dict, ack_id: str):
-        """Process a single message with robust error handling"""
+        """Process a single message - FIXED untuk prevent duplicate after success"""
         job_id = None
 
         try:
-            # Parse message data dengan safety check
+            # === STEP 1: BASIC VALIDATION ===
             if not isinstance(message_data, dict):
-                print(f"❌ Invalid message format: not a dictionary")
-                print(f"❌ Message type: {type(message_data)}")
-                print(f"❌ Raw data: {repr(message_data)}")
-                raise ValueError("Message data is not a dictionary")
+                print(f"❌ Invalid message format: {type(message_data)}")
+                self.subscriber.modify_ack_deadline(
+                    subscription=self.subscription_path,
+                    ack_ids=[ack_id],
+                    ack_deadline_seconds=0,
+                )
+                return
 
-            # Debug: Log incoming message structure (truncated untuk large objects)
-            try:
-                debug_msg = json.dumps(message_data, indent=2)[:1000]  # Limit size
-                print(f"🔍 Raw message data (first 1000 chars): {debug_msg}")
-            except Exception:
-                print(f"🔍 Raw message data (repr): {repr(message_data)[:500]}")
-
-            # Extract job_id first untuk tracking
+            # === STEP 2: EXTRACT JOB_ID FIRST ===
             job_id = message_data.get("job_id", "unknown")
+            print(f"🔍 Processing message for job: {job_id}")
 
-            # Check if job already completed (prevent duplicate processing)
+            # === STEP 3: CHECK IF JOB ALREADY COMPLETED (CRITICAL FIX) ===
             if job_id != "unknown":
                 try:
                     doc_ref = self.firestore_client.collection("jobs").document(job_id)
@@ -226,54 +222,31 @@ class DocumentWorker:
 
                     if existing_job.exists:
                         job_status = existing_job.to_dict().get("status")
+                        print(f"🔍 Existing job status: {job_status}")
+
                         if job_status in ["completed", "failed"]:
                             print(
-                                f"⚠️ Job {job_id} already {job_status}, skipping processing"
+                                f"⚠️ Job {job_id} already {job_status} - SKIPPING and ACKing message"
                             )
-                            # ACK the message to remove from queue
+                            # CRITICAL: ACK the message to prevent retry
                             self.subscriber.acknowledge(
                                 subscription=self.subscription_path,
                                 ack_ids=[ack_id],
                             )
-                            print(
-                                f"✅ Duplicate message acknowledged: {ack_id[:10]}..."
-                            )
+                            print(f"✅ Duplicate message acknowledged: {ack_id[:10]}...")
                             return
                 except Exception as e:
-                    print(f"⚠️ Could not check existing job status: {e}")
-                    # Continue with processing if can't check
+                    print(f"⚠️ Could not check job status: {e} - proceeding anyway")
 
-            # Validate required fields dengan detailed logging
-            required_fields = {
-                "job_id": message_data.get("job_id"),
-                "document_type": message_data.get("document_type"),
-                "gcs_path": message_data.get("gcs_path"),
-                "filename": message_data.get("filename"),
-            }
+            # === STEP 4: SIMPLE FIELD CHECK (NO STRICT VALIDATION) ===
+            required_fields = ["job_id", "document_type", "gcs_path", "filename"]
+            available_fields = list(message_data.keys())
+            missing_fields = [field for field in required_fields if field not in message_data]
 
-            missing_fields = []
-            invalid_fields = []
-
-            for field_name, field_value in required_fields.items():
-                if field_value is None:
-                    missing_fields.append(f"{field_name}: None")
-                elif not isinstance(field_value, str):
-                    invalid_fields.append(
-                        f"{field_name}: {type(field_value).__name__} ({repr(field_value)})"
-                    )
-                elif field_value.strip() == "":
-                    invalid_fields.append(f"{field_name}: empty string")
-
-            # Log validation results
-            if missing_fields or invalid_fields:
-                print(f"❌ Message validation failed for job: {job_id}")
-                if missing_fields:
-                    print(f"❌ Missing fields: {missing_fields}")
-                if invalid_fields:
-                    print(f"❌ Invalid fields: {invalid_fields}")
-                print(f"❌ Available fields: {list(message_data.keys())}")
-
-                # NACK the message - it's malformed
+            if missing_fields:
+                print(f"❌ Missing fields: {missing_fields}")
+                print(f"❌ Available fields: {available_fields}")
+                # NACK malformed messages
                 self.subscriber.modify_ack_deadline(
                     subscription=self.subscription_path,
                     ack_ids=[ack_id],
@@ -282,76 +255,121 @@ class DocumentWorker:
                 print(f"❌ Malformed message nacked: {ack_id[:10]}...")
                 return
 
-            # Extract validated fields
-            job_id = str(required_fields["job_id"]).strip()
-            document_type = str(required_fields["document_type"]).strip()
-            gcs_path = str(required_fields["gcs_path"]).strip()
-            filename = str(required_fields["filename"]).strip()
+            # === STEP 5: EXTRACT FIELDS SAFELY ===
+            document_type = str(message_data["document_type"]).strip()
+            gcs_path = str(message_data["gcs_path"]).strip()
+            filename = str(message_data["filename"]).strip()
 
             print(f"✅ Message validation passed")
             print(f"🔨 Processing job: {job_id}")
             print(f"📄 Document type: {document_type}")
             print(f"📁 File: {filename}")
 
-            # Update status to processing
+            # === STEP 6: UPDATE STATUS TO PROCESSING ===
             self.update_job_status(job_id, "processing")
 
-            # Process the document
+            # === STEP 7: PROCESS DOCUMENT ===
             process_result = self.process_document(message_data)
 
-            # Handle results
+            # === STEP 8: HANDLE RESULTS AND ACK IMMEDIATELY ===
             if process_result["success"]:
-                self.update_job_status(
-                    job_id, "completed", result=process_result["result"]
-                )
-                self.publish_result(job_id, process_result, "completed")
-                print(f"✅ Job {job_id} completed successfully")
-            else:
-                self.update_job_status(job_id, "failed", error=process_result["error"])
-                self.publish_result(job_id, process_result, "failed")
-                print(
-                    f"❌ Job {job_id} failed: {process_result.get('error', 'Unknown error')}"
-                )
+                # Update job status
+                self.update_job_status(job_id, "completed", result=process_result["result"])
 
-            # IMPORTANT: Always ACK successful processing
+                # Publish results (in try/catch to not affect ACK)
+                try:
+                    self.publish_result(job_id, process_result, "completed")
+                except Exception as pub_error:
+                    print(f"⚠️ Result publish failed: {pub_error} - but job completed")
+
+                print(f"✅ Job {job_id} completed successfully")
+
+            else:
+                # Update job status
+                self.update_job_status(job_id, "failed", error=process_result["error"])
+
+                # Publish results (in try/catch to not affect ACK)
+                try:
+                    self.publish_result(job_id, process_result, "failed")
+                except Exception as pub_error:
+                    print(f"⚠️ Result publish failed: {pub_error} - but job marked failed")
+
+                print(f"❌ Job {job_id} failed: {process_result.get('error', 'Unknown error')}")
+
+            # === STEP 9: CRITICAL - ALWAYS ACK SUCCESSFUL PROCESSING ===
+            # Whether job succeeded or failed, if we processed it, ACK the message
             self.subscriber.acknowledge(
                 subscription=self.subscription_path,
                 ack_ids=[ack_id],
             )
             print(f"✅ Message acknowledged: {ack_id[:10]}...")
-
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON parsing error: {e}")
-            print(f"❌ Raw message: {repr(message_data)}")
-            # NACK malformed JSON
-            self.subscriber.modify_ack_deadline(
-                subscription=self.subscription_path,
-                ack_ids=[ack_id],
-                ack_deadline_seconds=0,
-            )
-            print(f"❌ JSON error - message nacked: {ack_id[:10]}...")
+            print(f"✅ Processing complete for job: {job_id}")
 
         except Exception as e:
-            error_msg = f"Unexpected error processing job {job_id}: {str(e)}"
+            error_msg = f"Unexpected processing error: {str(e)}"
             print(f"❌ {error_msg}")
+            print(f"❌ Job ID: {job_id}")
             print(f"❌ Traceback: {traceback.format_exc()}")
 
-            # Try to update job status if we have job_id
+            # Try to mark job as failed
             if job_id and job_id != "unknown":
                 try:
                     self.update_job_status(job_id, "failed", error=error_msg)
+                    print(f"✅ Job {job_id} marked as failed")
+
+                    # ACK the message since we handled it (even if failed)
+                    self.subscriber.acknowledge(
+                        subscription=self.subscription_path,
+                        ack_ids=[ack_id],
+                    )
+                    print(f"✅ Failed job message acknowledged: {ack_id[:10]}...")
+
                 except Exception as update_error:
-                    print(f"❌ Could not update job status: {update_error}")
+                    print(f"❌ Could not update failed job: {update_error}")
+                    # NACK only if we can't handle it at all
+                    self.subscriber.modify_ack_deadline(
+                        subscription=self.subscription_path,
+                        ack_ids=[ack_id],
+                        ack_deadline_seconds=0,
+                    )
+                    print(f"❌ Unhandleable error - message nacked: {ack_id[:10]}...")
+            else:
+                # No job_id, NACK the malformed message
+                self.subscriber.modify_ack_deadline(
+                    subscription=self.subscription_path,
+                    ack_ids=[ack_id],
+                    ack_deadline_seconds=0,
+                )
+                print(f"❌ No job_id - message nacked: {ack_id[:10]}...")
 
-            # NACK for retry (but limit retries via Pub/Sub config)
-            self.subscriber.modify_ack_deadline(
-                subscription=self.subscription_path,
-                ack_ids=[ack_id],
-                ack_deadline_seconds=0,
+    # CRITICAL DEBUGGING: Add method untuk check duplicates
+    def check_duplicate_processing(self):
+        """Check untuk jobs yang diproses multiple times"""
+        try:
+            # Query recent jobs
+            recent_jobs = (
+                self.firestore_client.collection("jobs")
+                .order_by("created_at", direction=firestore.Query.DESCENDING)
+                .limit(50)
+                .get()
             )
-            print(f"❌ Processing error - message nacked: {ack_id[:10]}...")
 
-    # Message parsing improvement di polling loop
+            job_counts = {}
+            for job_doc in recent_jobs:
+                job_data = job_doc.to_dict()
+                job_id = job_data.get("job_id")
+                if job_id:
+                    job_counts[job_id] = job_counts.get(job_id, 0) + 1
+
+            duplicates = {jid: count for jid, count in job_counts.items() if count > 1}
+            if duplicates:
+                print(f"⚠️ Found duplicate jobs: {duplicates}")
+            else:
+                print(f"✅ No duplicate jobs found")
+
+        except Exception as e:
+            print(f"❌ Duplicate check failed: {e}")
+
     def start_polling_worker(self):
         """Start the worker using simple polling"""
         print(f"Starting worker with ultra-simple polling...")
@@ -409,9 +427,7 @@ class DocumentWorker:
                                     continue
                                 except json.JSONDecodeError as e:
                                     print(f"❌ JSON decode error: {e}")
-                                    print(
-                                        f"❌ Decoded data: {decoded_data[:100]}..."
-                                    )
+                                    print(f"❌ Decoded data: {decoded_data[:100]}...")
                                     # NACK malformed JSON
                                     self.subscriber.modify_ack_deadline(
                                         subscription=self.subscription_path,
@@ -427,9 +443,7 @@ class DocumentWorker:
 
                             except Exception as e:
                                 print(f"❌ Message handling error: {e}")
-                                print(
-                                    f"❌ Traceback: {traceback.format_exc()}"
-                                )
+                                print(f"❌ Traceback: {traceback.format_exc()}")
                                 # NACK on any error
                                 try:
                                     self.subscriber.modify_ack_deadline(
@@ -438,17 +452,13 @@ class DocumentWorker:
                                         ack_deadline_seconds=0,
                                     )
                                 except Exception as nack_error:
-                                    print(
-                                        f"❌ Could not NACK message: {nack_error}"
-                                    )
+                                    print(f"❌ Could not NACK message: {nack_error}")
                     else:
                         consecutive_empty += 1
                         if consecutive_empty == 1:
                             print(f"No messages available")
                         elif consecutive_empty >= max_empty_polls:
-                            print(
-                                f"Worker heartbeat - active and listening..."
-                            )
+                            print(f"Worker heartbeat - active and listening...")
                             consecutive_empty = 0
 
                         # Sleep between polls when no messages
