@@ -31,9 +31,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY worker.py .         # ← Simple, langsung copy worker.py
-COPY pdf_processor.py .
+# Copy ALL files (more reliable than individual files)
+COPY . .
+
+# Verify files for debugging
+RUN ls -la && echo "Python files found:" && find . -name "*.py"
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash worker \
