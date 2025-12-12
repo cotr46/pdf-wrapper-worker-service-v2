@@ -1,0 +1,102 @@
+# .dockerignore
+# Exclude unnecessary files from Docker build context to optimize build speed and prevent issues
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+CHANGELOG*
+LICENSE*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.env
+.venv
+.ENV
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.cache
+pytest.ini
+tox.ini
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Logs
+*.log
+logs/
+
+# Environment variables (but keep example files)
+.env.local
+.env.production
+.env.staging
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Cloud Build and deployment files (optional - uncomment if you don't want these in container)
+# cloudbuild.yaml
+# docker-compose.yml
+# docker-compose.*.yml
+
+# Development scripts (uncomment if you have these)
+# scripts/
+# tools/
+
+# Configuration files that shouldn't be in production (uncomment as needed)
+# .env.development
+# config.local.json
+
+# Keep these files - they ARE needed for the build:
+# worker.py
+# pdf_processor.py
+# requirements.txt
+# Dockerfile
